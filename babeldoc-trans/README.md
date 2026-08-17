@@ -86,7 +86,7 @@ babeldoc-trans/
 
 ## 与原版（上游）的区别
 
-本 skill 修改自上游仓库 [kaixindelele/wechat_agent_bridge_skills](https://github.com/kaixindelele/wechat_agent_bridge_skills) 中的 `babeldoc-trans`（原版页面：<https://github.com/kaixindelele/wechat_agent_bridge_skills/tree/main/babeldoc-trans>）。原版为「接外部 API」模式（必须配置 `BABELDOC_API_KEY`、依赖 `openai`、翻译由外部 LLM API 完成）；本版在此基础上做了如下修改与优化：
+本 skill 修改自 [babeldoc-trans](https://github.com/kaixindelele/wechat_agent_bridge_skills/tree/main/babeldoc-trans)。原版为「接外部 API」模式（必须配置 `BABELDOC_API_KEY`、依赖 `openai`、翻译由外部 LLM API 完成）；本版在此基础上做了如下修改与优化：
 
 | | 原版 | 本修改版 |
 |---|---|---|
@@ -104,6 +104,11 @@ babeldoc-trans/
 5. **新增可累积的故障案例库**：`故障案例与恢复.md` 记录实际异常现象、根因与恢复流程，并预留案例模板；SKILL.md / usage_guide.md 增加通用指向。
 6. **依赖与运行说明修正**：补列 `torch`（babeldoc 传递依赖，随 babeldoc 自动安装，默认 CPU 版、可换 GPU 版）；删除 `openai`；修正"全程不联网"误述。
 
-## 许可
+## 其他借鉴仓库
 
-MIT
+除上游 `babeldoc-trans` 外，本 skill 还融合了以下仓库的提示词与方法论——均已消化整合进统一的学术文体与翻译质量体系，而非简单堆叠文件：
+
+- [xindaya-translator](https://github.com/rongxinzy/RongxinAI/tree/main/SKILLs/xindaya-translator) — 学术英→中句式与文体参考，用于 `academic-style-guide.md` 的句式模板与文体规范
+- [translate-polisher](https://github.com/rookie-ricardo/erduo-skills/tree/main/skills/translate-polisher) — 翻译腔诊断与润色要点，用于去 AI 味与译后质量清单
+- [paper-translation](https://github.com/Thoryn-Y/skills-warehouse/tree/main/paper-translation) — 中文流畅度与可读性优化（同在本仓库中，由作者本人创作）
+- [学术论文翻译师（中文版）](https://skillhub.cn/skills/chenlin-academic-paper-translator-zh) — 术语一致性引擎 + 形态冻结 + 数据保真 + 学术文体与回译的四支柱方法论内核（提炼自 PDFMathTranslate，经 credible-writer / humanizer-zh 写作哲学重构）；本 skill 的翻译质量总纲 `babeldoc_翻译守则.md` 即源于此
