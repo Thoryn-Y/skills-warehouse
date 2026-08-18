@@ -28,19 +28,40 @@ SOFTWARE.
 ATTRIBUTION
 
 This folder contains software that is a modified and integrated work.
-The original code is derived from the following third-party projects,
-each originally licensed under the MIT License:
+The original code is derived from the following third-party projects:
 
 1. pro-translator
    Copyright (c) 2026 pro-translator contributors
+   License: MIT
    Source: https://github.com/rongxinzy/RongxinAI/tree/main/SKILLs/xindaya-translator/LICENSE
 
 2. wechat_agent_bridge_skills
    Copyright (c) 2026 kaixindelele
+   License: MIT
    Source: https://github.com/kaixindelele/wechat_agent_bridge_skills/blob/main/LICENSE
 
 3. erduo-skills
    Copyright (c) 2026 Erduo
+   License: MIT
    Source: https://github.com/rookie-ricardo/erduo-skills/blob/main/LICENSE
 
+4. chenlin-academic-paper-translator-zh (学术论文翻译师 · 中文版)
+   Source: https://skillhub.cn/skills/user_00c9b356/chenlin-academic-paper-translator-zh
+   License: Unknown / Unspecified
+   Note: The original source claims to be derived from "PDFMathTranslate (MIT)"
+   and states that the original project's MIT license is retained.
+   However, the original LICENSE file for this Skill could not be located.
+   Modified and integrated by Thoryn-Y in good faith.
+
 Modifications and integration: Copyright (c) 2026 Thoryn-Y
+
+---
+
+DISCLAIMER
+
+While portions 1–3 above are confirmed to be under the MIT License, the
+license status of portion 4 (chenlin-academic-paper-translator-zh) is
+unconfirmed. The author has made good-faith efforts to identify and comply
+with the original licensing terms but cannot guarantee accuracy due to
+incomplete information from the original source. Users are advised to
+verify the licensing status independently before redistribution.
