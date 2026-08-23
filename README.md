@@ -72,6 +72,7 @@ skills-warehouse/
 ├── babeldoc-trans/           # PDF 论文自动翻译 Skill
 │   ├── SKILL.md              # AI 触发指令与三阶段流程
 │   ├── README.md             # 详细说明
+│   ├── LICENSE               # MIT 许可证（此技能的归属声明和原始版权信息）
 │   ├── references/           # 翻译守则、术语表、文体指南、故障案例库等
 │   └── scripts/              # 安装脚本、执行脚本、自定义翻译器等
 ├── deeplearning-digest/      # 深度学习论文解读 Skill
