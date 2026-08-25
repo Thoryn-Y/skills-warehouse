@@ -92,7 +92,7 @@ python scripts/translate.py <输入> --output-dir DIR
 ## 三、使用示例
 
 ```bash
-# 用带 babeldoc + torch + pymupdf 的 Python（路径由机主指定；未指定时运行前询问机主）。
+# 用带 babeldoc + onnxruntime + pymupdf 的 Python（路径由机主指定；未指定时运行前询问机主）。
 # 下文统一用变量 $PY 指代该解释器。
 PY="/path/to/python_with_babeldoc"
 
@@ -219,7 +219,7 @@ Pass2 查表时有 N 段没找到对应译文，这些段落保留了英文。�
 | 包名 | 用途 | 安装命令 |
 |------|------|---------|
 | babeldoc | 版面解析 + 中文重排渲染 | `pip install babeldoc` |
-| torch | PyTorch 推理后端（babeldoc 依赖，随 babeldoc 自动安装；默认 CPU 版，运行前询问机主是否改装 GPU 版；需要自行确认 torch 及其相关库的版本，比较麻烦，虽然运行起来会更快，但更适合有基础的用户，没有基础的用户建议直接按照默认流程安装 CPU 版） | 无需单独安装 |
+| onnxruntime | ONNX 推理后端（babeldoc 依赖，随 babeldoc 自动安装；默认 CPU 版，运行前询问机主是否改装 GPU 版（onnxruntime-gpu，需先卸载 CPU 版再安装、注意与 NVIDIA 驱动版本匹配，稍麻烦）；虽运行更快，但更适合有基础的用户，无基础的用户建议直接按默认流程安装 CPU 版） | 无需单独安装 |
 | pymupdf | 标题提取兜底、输出 PDF 验收统计 | `pip install pymupdf` |
 | opencv-python-headless | babeldoc 图像处理依赖 | `pip install opencv-python-headless` |
 
@@ -227,7 +227,7 @@ Pass2 查表时有 N 段没找到对应译文，这些段落保留了英文。�
 
 一键安装：`bash scripts/setup.sh`
 
-运行所需的 Python 环境需带 babeldoc + torch + pymupdf。解释器路径由机主指定；若机主未指定，运行前需向其询问使用哪个环境。
+运行所需的 Python 环境需带 babeldoc + onnxruntime + pymupdf。解释器路径由机主指定；若机主未指定，运行前需向其询问使用哪个环境。
 
 ## 九、翻译质量方法论参考
 
