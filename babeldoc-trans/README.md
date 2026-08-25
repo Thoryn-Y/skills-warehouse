@@ -56,7 +56,7 @@ python ~/.codebuddy/skills/babeldoc-trans/scripts/translate.py "<输入>" --outp
 
 - Python 3.10+
 - babeldoc
-- torch（PyTorch 推理后端，babeldoc 的依赖，安装 babeldoc 时自动装入。默认安装 CPU 版；询问机主是否换成安装 GPU 版；需要自行确认 torch 及其相关库的版本，比较麻烦，虽然运行起来会更快，但更适合有基础的用户，没有基础的用户建议直接按照默认流程安装 CPU 版）
+- onnxruntime（ONNX 推理后端，babeldoc 的依赖，安装 babeldoc 时自动装入。默认安装 CPU 版；询问机主是否换成安装 GPU 版（onnxruntime-gpu）；需要确认 onnxruntime-gpu 与机内 NVIDIA 驱动版本匹配、并先卸载 CPU 版 onnxruntime，稍麻烦，虽运行更快，但更适合有基础的用户，没有基础的用户建议直接按照默认流程安装 CPU 版）
 - pymupdf
 - opencv-python-headless
 - （无需 openai / 无需任何外部 API）
@@ -102,7 +102,7 @@ babeldoc-trans/
 3. **内置「专业学术译者」身份与学术文体规范**：`academic-style-guide.md` 开篇即「译者身份与立场」，把目标锚定在"中文写作水准"而非"逐词对应"；含话题与主语即时性、动词驱动（介词框架警示）、主语后置与跨句指代、译后质量清单等。
 4. **中间产物管理更可控**：所有中间 / 最终产物只出现在用户指定 PDF 同目录；`work/` 收进源目录；渲染后不自动清理，由用户自行删除。
 5. **新增可累积的故障案例库**：`故障案例与恢复.md` 记录实际异常现象、根因与恢复流程，并预留案例模板；SKILL.md / usage_guide.md 增加通用指向。
-6. **依赖与运行说明修正**：补列 `torch`（babeldoc 传递依赖，随 babeldoc 自动安装，默认 CPU 版、可换 GPU 版）；删除 `openai`。
+6. **依赖与运行说明修正**：补列 `onnxruntime`（babeldoc 推理后端依赖，随 babeldoc 自动安装，默认 CPU 版、可换 GPU 版 onnxruntime-gpu）；删除 `openai`。
 
 ## 其他借鉴仓库
 
