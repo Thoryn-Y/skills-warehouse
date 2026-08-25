@@ -18,7 +18,7 @@ description: "PDF论文自动翻译工具。使用 BabelDOC 引擎将英文 PDF 
 
 ## 运行环境（重要）
 
-必须用带 babeldoc / torch / pymupdf 的 Python 环境。若机主无指定，每次运行需向机主询问使用哪个环境。
+必须用带 babeldoc / onnxruntime / pymupdf 的 Python 环境。若机主无指定，每次运行需向机主询问使用哪个环境。
 
 下文用 `$PY` 代指该解释器（运行前由机主指定，或询问机主后确定），`$SKILL` 代指本 skill 目录。
 
