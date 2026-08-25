@@ -27,7 +27,7 @@
 产出 ``<中文标题>.pdf``。
 
 输入支持 arxiv URL / arxiv ID / 本地 PDF 路径。
-运行环境：需带 babeldoc + torch + pymupdf 的 Python 解释器；若机主未指定解释器路径，运行前需向机主询问使用哪个环境。
+运行环境：需带 babeldoc + onnxruntime + pymupdf 的 Python 解释器；若机主未指定解释器路径，运行前需向机主询问使用哪个环境。
 """
 
 from __future__ import annotations
