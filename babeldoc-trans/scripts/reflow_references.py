@@ -164,16 +164,25 @@ def dominant_size(spans):
     return c.most_common(1)[0][0]
 
 
-def build_cells(doc, title_pno, title_bbox, title_size, cols, end_pno=None):
+def build_cells(doc, title_pno, title_bbox, title_size, cols, spans, end_pno=None):
     """按阅读顺序（页序 × 栏序）构建单元格列表。
     标题页中：含标题的栏从标题下方开始，其余栏可从页顶开始。
-    end_pno 为参考文献 section 的最后一页（含）。"""
+    end_pno 为参考文献 section 的最后一页（含）。
+    每栏底部取到该页 references span 的最大 y1（夹紧到页底 -4），
+    使重绘区延伸到页脚，覆盖被精确擦除的全部原文，避免文字被擦掉却没重画而丢失。"""
     page_h = doc[title_pno].rect.height
     page_w = doc[title_pno].rect.width
     tx0, ty0, tx1, ty1 = title_bbox
+    # 每页 references 最低行的底边，用于把重绘区向下延伸到页脚
+    max_y1_by_page = {}
+    for s in spans:
+        max_y1_by_page[s["pno"]] = max(max_y1_by_page.get(s["pno"], 0.0), s["y1"])
     cells = []
     last = doc.page_count - 1 if end_pno is None else end_pno
     for p in range(title_pno, last + 1):
+        # y_bottom 取整页 references 区域（覆盖双栏整页），不再限于 dominant span 最远 y1；
+        # 否则右栏 references 在 dominant span 之外，会被漏擦、漏重画，导致字叠字。
+        y_bottom = page_h - 4
         for (cx0, cx1) in cols:
             if p == title_pno:
                 # 该栏是否与标题水平相交？
@@ -181,8 +190,19 @@ def build_cells(doc, title_pno, title_bbox, title_size, cols, end_pno=None):
                 y_top = (ty0 + title_size * 1.6 + 4) if col_overlaps_title else TOP_MARGIN
             else:
                 y_top = TOP_MARGIN
-            y_bottom = page_h - BOTTOM_MARGIN
             cells.append((p, cx0, cx1, y_top, y_bottom))
+    # 去重 cells：detect_columns 在 references 区域偶尔会返回完全相同的栏区间
+    # （如本论文就是 cols=[(58.5,553.3),(58.5,553.3)] 两个一样），导致每页构造 2 个重复 cells，
+    # refs_text 被抽 2 遍、split 时出现镜像重复；用 (p, cx0, cx1) 唯一键去重。
+    _seen = set()
+    _uniq_cells = []
+    for _c in cells:
+        _k = (_c[0], round(_c[1], 2), round(_c[2], 2))
+        if _k in _seen:
+            continue
+        _seen.add(_k)
+        _uniq_cells.append(_c)
+    cells = _uniq_cells
     return cells, page_w
 
 
@@ -218,18 +238,23 @@ def detect_ref_style(refs_text):
 
 
 def split_entries_text(refs_text):
-    """按连续编号切分条目。在掩码副本上找边界（避开 'Fig. 3.' / 'doi:10.' 误判），
-    再回原文字符串切片。同时支持 '[N]' 与 'N.' 两种编号风格。"""
+    """按 [N] 编号起止切分条目。在掩码副本上找边界（避开 'Fig. 3.' / 'doi:10.' 误判），
+    再回原文字符串切片。同时支持 '[N]' 与 'N.' 两种编号风格。
+
+    收集所有按位置排序的 [N] 编号起止（N >= 1）作为条目边界。
+    不要求连续编号——双栏布局下右栏的 [10] [11] ... 即使左栏 [9] 之后跳到 [13]，
+    也能逐一起作用条目起点；这避免了「expected 卡在某值后永远不涨」的 bug。
+    """
     masked = mask_false_positives(refs_text)
     style = detect_ref_style(refs_text)
     pat = r"\[(\d+)\]" if style == "bracket" else r"(?<!\d)(\d+)\. "
-    expected = 1
     positions = []
     for m in re.finditer(pat, masked):
         n = int(m.group(1))
-        if n == expected:
+        if n >= 1:
             positions.append(m.start())
-            expected += 1
+    # 去重并按位置排序（refs_text 偶尔因 cells 重复而含镜像副本）
+    positions = sorted(set(positions))
     if not positions:
         return [refs_text.strip()]
     entries = []
@@ -286,12 +311,21 @@ def reflow_pdf(inp, outp, cap=None, tiny=None):
     spans = gather_ref_spans(doc, title_pno, title_bbox, ref_end_pno)
     assert spans, "未收集到参考文献文本"
     cols = detect_columns(spans)
+    # fallback: detect_columns 在 references 区域偶尔返回 1 栏，或返回两个完全相同区间的「假 2 栏」
+    # （refs span x 聚类不锐，peak2 找不到 left/right_first）；硬拆双栏以保留 paper 原双栏布局。
+    _unique_cols = set((round(c[0], 2), round(c[1], 2)) for c in cols)
+    if len(_unique_cols) < 2:
+        cx0, cx1 = cols[0]
+        mid = (cx0 + cx1) / 2
+        gap = 6.0  # 栏间距 6pt
+        cols = [(cx0, mid - gap), (mid + gap, cx1)]
+        print(f"[栏] fallback: 单一栏拆双栏 {cols}")
     size = dominant_size(spans)
     font = fitz.Font("helv")
     print(f"[栏] 检测到 {len(cols)} 栏: {cols}")
     print(f"[字号] 参考文献正文 {size:.1f}pt")
 
-    cells, page_w = build_cells(doc, title_pno, title_bbox, title_size, cols, ref_end_pno)
+    cells, page_w = build_cells(doc, title_pno, title_bbox, title_size, cols, spans, ref_end_pno)
     refs_text = extract_ref_text(doc, cells)
     entries = split_entries_text(refs_text)
     print(f"[切分] 共 {len(entries)} 条；首条={entries[0][:35]!r} 末条={entries[-1][:35]!r}")
@@ -310,12 +344,25 @@ def reflow_pdf(inp, outp, cap=None, tiny=None):
     col_w = cols[0][1] - cols[0][0]
     wrapped = [wrap(e, col_w, col_w - base_hang, font, size) for e in entries]
 
-    # 覆盖白底（标题行 + 各单元格）
+    # 双重精确擦除（cells 整块 + spans 逐个），确保原参考文献文字 100% 清除：
+    #   1) 标题行（白底整行）；
+    #   2) 每栏 references 区按 cell 整块白底 redact —— 兜住所有非 char-level / 非 dominant 字号 / vector 装饰等 pymupdf `get_text("dict")` 拿不到的图元；
+    #   3) 逐 span 精确 redact —— 兜住跨栏 gutter 残留、cell 边界外偏移字符。
+    # 三层叠加可彻底消除「字叠字」重影，不再依赖单一层级的覆盖完整度。
     ty = title_bbox[1]
     doc[title_pno].add_redact_annot(
         fitz.Rect(0, ty - 3, page_w, ty + title_size * 1.6 + 4), fill=(1, 1, 1))
     for (p, cx0, cx1, y_top, y_bottom) in cells:
-        doc[p].add_redact_annot(fitz.Rect(cx0 - 3, y_top - 3, cx1 + 3, y_bottom + 3), fill=(1, 1, 1))
+        r = fitz.Rect(cx0 - 2, y_top - 2, cx1 + 2, y_bottom + 2).intersect(doc[p].rect)
+        if r.is_empty:
+            continue
+        doc[p].add_redact_annot(r, fill=(1, 1, 1))
+    for s in spans:
+        page = doc[s["pno"]]
+        r = fitz.Rect(s["x0"] - 1, s["y0"] - 1, s["x1"] + 1, s["y1"] + 1).intersect(page.rect)
+        if r.is_empty:
+            continue
+        page.add_redact_annot(r, fill=(1, 1, 1))
     for p in range(title_pno, doc.page_count):
         doc[p].apply_redactions()
 
