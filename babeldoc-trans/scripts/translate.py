@@ -721,6 +721,21 @@ def stage_render(args, work: Path, pdf: Path, out_dir: Path) -> None:
     if t.miss and t.missed_texts:
         print(f"[INJECT] 未命中示例: {t.missed_texts[0][:100]}", flush=True)
 
+    # 防重叠抬升守卫的触发次数（见 offline_translator.install_typesetting_overlap_guard）。
+    # 非 0 属正常：说明有段落本来会被压扁成 1–4pt，守卫拦住了。
+    try:
+        from offline_translator import OVERLAP_LIFT_SKIPPED as _ols
+
+        lift_skipped = _ols[0]
+    except Exception:  # noqa: BLE001
+        lift_skipped = 0
+    if lift_skipped:
+        print(
+            f"[LAYOUT] 防重叠抬升守卫拦下 {lift_skipped} 处恶性抬升"
+            "（这些段落原本会被压扁、字号塌到 1–4pt）",
+            flush=True,
+        )
+
     monos = sorted(work.glob("*.zh.mono.pdf"), key=lambda p: p.stat().st_mtime)
     if not monos:
         raise SystemExit(f"未找到 babeldoc 输出的 *.zh.mono.pdf（目录: {work}）")
@@ -775,6 +790,7 @@ def stage_render(args, work: Path, pdf: Path, out_dir: Path) -> None:
                 "inject_hit": t.hit,
                 "inject_miss": t.miss,
                 "layout_skipped": getattr(t, "skipped_layout", 0),
+                "overlap_lift_skipped": lift_skipped,
                 "zh_chars": zh_chars,
                 "latin_words": latin_words,
                 "reflow": reflow_on,

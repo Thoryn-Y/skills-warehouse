@@ -115,6 +115,48 @@ def find_title(doc):
     return None, None
 
 
+def _cjk_block_cut(doc, title_pno, title_bbox):
+    """【本地补丁】定位参考文献区里第一处「中文块」（含 CJK 的正文行），返回 (pno, y0)。
+
+    本流水线的参考文献默认保持英文（--translate-refs 关闭），因此**译文里的中文块不可能
+    是文献表**——它出现在文献之后时（MDPI 稿常见的「免责声明/出版者注：」等尾注），
+    边界必须刹在它之前：否则该段会被 cell 整块擦除、又不会被当成文献条目重画，静默丢内容
+    （实测 bioengineering-12-00311：末页「免责声明/出版者注」整段丢失，覆盖率/注入命中率
+    均正常，肉眼不逐页看根本发现不了）。
+
+    两道前提（否则中文不是异常信号，直接返回 None，保持原行为）：
+      · 只有**文献表本身是拉丁文**时才启用。先看文献第一条是否含 CJK：若文献表自身就是
+        中文（`--translate-refs` 模式），中文遍布全文，本判据无意义，返回 None。
+      · 标题页上位于标题及其上方的行、页眉/页脚带不参与判定（标题本身是「参考文献」，
+        上方是正文）。
+    """
+    tx0, ty0, tx1, ty1 = title_bbox
+    seen_first_ref_line = False
+    for pno in range(title_pno, doc.page_count):
+        page = doc[pno]
+        cbot = page.rect.height - BOTTOM_MARGIN
+        ctop = page_content_top(doc, pno)
+        for b in page.get_text("dict").get("blocks", []):
+            for ln in b.get("lines", []):
+                sps = [s for s in ln.get("spans", []) if s["text"].strip()]
+                if not sps:
+                    continue
+                ly0 = min(s["bbox"][1] for s in sps)
+                ly1 = max(s["bbox"][3] for s in sps)
+                if ly1 <= ctop + 0.5 or ly0 >= cbot:
+                    continue  # 运行页眉 / 页脚，不属于文献区
+                if pno == title_pno and ly1 <= ty1 + 1:
+                    continue  # 标题本身及其上方正文
+                txt = "".join(s["text"] for s in sps)
+                if not seen_first_ref_line:
+                    seen_first_ref_line = True
+                    if re.search(r"[\u4e00-\u9fff]", txt):
+                        return None  # 文献表本身就是中文 → 中文非异常信号
+                if re.search(r"[\u4e00-\u9fff]", txt):
+                    return pno, ly0
+    return None
+
+
 def find_ref_end_pno(doc, title_pno, title_bbox, title_size, ref_size):
     """定位参考文献 section 的最后一页，返回 (end_pno, cut_y)。
 
@@ -184,8 +226,18 @@ def find_ref_end_pno(doc, title_pno, title_bbox, title_size, ref_size):
 
     end = min(head_end, s_end)
     cut_y = s_cut if (end == s_end and s_cut is not None) else None
+    _how = "章节标题" if head_end < s_end else ("表图标题分界" if cut_y is not None else "条目编号序列")
+
+    # 【本地补丁】中文块兜底分界：文献之后直接排中文尾注（关键词表未必覆盖）时，
+    # 用「出现 CJK」这一与语言无关的结构判据刹住边界，避免该段被擦除且不重画。
+    _cjk = _cjk_block_cut(doc, title_pno, title_bbox)
+    if _cjk is not None:
+        _p, _y = _cjk
+        if _p < end or (_p == end and (cut_y is None or _y < cut_y)):
+            end, cut_y = _p, _y
+            _how = "中文块分界"
+
     if end < doc.page_count - 1 or cut_y is not None:
-        _how = "章节标题" if head_end < s_end else ("表图标题分界" if cut_y is not None else "条目编号序列")
         print(f"[边界] 文献区判定到第 {end + 1} 页"
               + (f" 的 y={cut_y:.0f} 处" if cut_y is not None else "")
               + f"（依据：{_how}）")
@@ -307,7 +359,7 @@ def detect_doc_columns(doc):
     return cols, f"逐页投票 单栏={votes[1]} 双栏={votes[2]}（共 {total} 页有效）"
 
 
-def gather_ref_spans(doc, title_pno, title_bbox, end_pno=None, cut_y=None):
+def gather_ref_spans(doc, title_pno, title_bbox, end_pno=None, cut_y=None, single_col=False):
     """收集参考文献文本 span（跳过标题本身与页眉/页脚），用于几何探测与擦除定位。
 
     三类内容必须排除，否则会被擦掉却不重画（静默丢内容）：
@@ -344,11 +396,22 @@ def gather_ref_spans(doc, title_pno, title_bbox, end_pno=None, cut_y=None):
                 if p == title_pno:
                     if fitz.Rect(lx0, ly0, lx1, ly1).intersects(title_rect):
                         continue  # 跳过标题本身
-                    # 标题**上方**、且与标题同栏的正文行（参考文献页常从正文末段/致谢
-                    # 直接接排）不属于参考文献。判断必须按「整行的左端」而不是按 span：
-                    # 一行中半途开始的 span（x0 落在标题右边界之外）会被误判成「标题右侧栏」
-                    # 而被收进来擦掉，结果就是那段正文被擦掉却没重画、静默丢字。
-                    if ly1 <= ty1 + 1 and lx0 < tx1 + 4:
+                    # 标题**上方**的正文行（参考文献页常从正文末段/致谢直接接排）不属于
+                    # 参考文献，必须排除，否则会被擦掉却不重画、静默丢内容。
+                    # 单栏版式：按 y 一刀切 —— 标题之上的任何行都不可能是参考文献（阅读
+                    #   顺序自上而下）。**不能只靠 x 判据**：当参考文献标题左对齐而正文整段
+                    #   缩进时（lx0 远大于 tx1），"lx0 < tx1 + 4" 判否，整页正文会被收进
+                    #   spans 擦除且不重画（实测 bioengineering-12-00311：正文缩进至 x=166
+                    #   而标题 x1=84，Conclusion/Author Contributions/Funding 等整节静默丢失）。
+                    #   判据取标题**底部**（ly1 <= ty1 + 1）而不是顶部：单栏里标题上方的任何行
+                    #   其底边必然不高于标题底边，取底部可连"紧贴标题"的那行一起排除；
+                    #   而标题下方的文献条目底边恒大于 ty1，不会被误排除（方向只会更保守）。
+                    # 双栏版式：阅读顺序为左栏→右栏，标题上方**右栏**的文字才是参考文献，
+                    #   故保留按 x 的判断，不能按 y 一刀切。
+                    if single_col:
+                        if ly1 <= ty1 + 1:
+                            continue
+                    elif ly1 <= ty1 + 1 and lx0 < tx1 + 4:
                         continue
                 for sp in sps:
                     spans.append({
@@ -697,8 +760,12 @@ def reflow_pdf(inp, outp, cap=None, tiny=None):
     title_font = "china-s" if re.search(r"[一-鿿]", title_text) else "helv"
     print(f"[定位] 标题'{title_text}' 第{title_pno + 1}页 y={title_bbox[1]:.0f} 字号{title_size:.1f}")
 
+    # 栏数必须在**收集 span 之前**判定：gather_ref_spans 排除「标题上方正文」的判据
+    # 依赖「全文是单栏还是双栏」（单栏按 y 一刀切，双栏按 x 分左右栏）。
+    doc_cols, doc_why = detect_doc_columns(doc)
+
     # 先估算参考文献正文字号，再判断参考文献 section 的边界
-    tmp_spans = gather_ref_spans(doc, title_pno, title_bbox)
+    tmp_spans = gather_ref_spans(doc, title_pno, title_bbox, single_col=(doc_cols == 1))
     ref_size = dominant_size(tmp_spans) if tmp_spans else title_size
     ref_end_pno, ref_cut_y = find_ref_end_pno(doc, title_pno, title_bbox, title_size, ref_size)
     post_doc = None
@@ -708,7 +775,8 @@ def reflow_pdf(inp, outp, cap=None, tiny=None):
         doc.delete_pages(range(ref_end_pno + 1, doc.page_count))
         print(f"[边界] 参考文献到第 {ref_end_pno + 1} 页；后续 {post_doc.page_count} 页暂不处理，重排后恢复")
 
-    spans = gather_ref_spans(doc, title_pno, title_bbox, ref_end_pno, ref_cut_y)
+    spans = gather_ref_spans(doc, title_pno, title_bbox, ref_end_pno, ref_cut_y,
+                             single_col=(doc_cols == 1))
     assert spans, "未收集到参考文献文本"
 
     # 全文页眉底线：必须在擦除/重绘**之前**标定（重画的行顶部更靠上，事后标定会失准），
@@ -725,7 +793,6 @@ def reflow_pdf(inp, outp, cap=None, tiny=None):
     # 参考文献区是全文里 x0 分布最乱的地方（编号缩进 + 悬挂缩进 + 短末行 + 数学片段），
     # 单栏论文在这里也会被聚类出「假第二峰」，反之真双栏也可能聚类失败；
     # 只有「版式本身是单栏还是双栏」才是可靠的判据。
-    doc_cols, doc_why = detect_doc_columns(doc)
     span_cols = detect_columns(spans)
     _uniq = {(round(c[0], 2), round(c[1], 2)) for c in span_cols}
     full_span = (min(s["x0"] for s in spans), max(s["x1"] for s in spans))
@@ -752,6 +819,19 @@ def reflow_pdf(inp, outp, cap=None, tiny=None):
                                 ref_end_pno, ref_cut_y)
     vocab = build_vocab(doc)
     refs_text = extract_ref_text(doc, cells)
+
+    # 【本地补丁·安全闸门】若抽出来的文本里混着成片 CJK、而拉丁字母仍占绝对多数，
+    # 说明**正文被误当成文献**收进了 cells（默认模式下参考文献保持英文）。此时擦除会
+    # 静默丢正文，而覆盖率 / 注入命中率都看不出来。宁可放弃重排，也不能丢内容。
+    # 「拉丁 ≥ 2×中文」这一半条件把 `--translate-refs` 的纯中文文献模式排除在外
+    # ——那种模式下中文是正常内容，不该拦（否则该模式的重排功能会被整体禁用）。
+    _cjk = len(re.findall(r"[\u4e00-\u9fff]", refs_text))
+    _latin = len(re.findall(r"[A-Za-z]", refs_text))
+    if _cjk > 20 and _latin >= 2 * _cjk:
+        doc.close()
+        raise RuntimeError(
+            f"参考文献区抽取出 {_cjk} 个中文字符（拉丁字母 {_latin} 个，疑为正文被误纳入）"
+            "→ 放弃悬挂缩进重排，保持原版式（未擦除任何内容）")
     _soft = len(SOFT_HYPHEN_RE.findall(refs_text))
     if _soft:
         refs_text = join_soft_hyphens(refs_text, vocab)

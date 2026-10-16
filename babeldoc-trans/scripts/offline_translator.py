@@ -96,7 +96,15 @@ def _clean_rich_text(text: str) -> str:
     return _LEFT_TAG.sub(_repl, _RIGHT_TAG.sub(_repl, text))
 
 
-__all__ = ["OfflineTranslator", "run_babeldoc_offline", "MARKER", "_clean_rich_text"]
+__all__ = [
+    "OfflineTranslator",
+    "run_babeldoc_offline",
+    "MARKER",
+    "_clean_rich_text",
+    "OVERLAP_LIFT_SKIPPED",
+    "install_figure_table_guard",
+    "install_typesetting_overlap_guard",
+]
 
 
 class _NullCache:
@@ -319,6 +327,126 @@ def install_figure_table_guard(verbose: bool = False) -> None:
     _guard_installed = True
 
 
+# ---- 「防重叠抬升」守卫：防版框被压扁导致正文字号塌陷 --------------------
+
+#: 被守卫拦下的抬升次数（诊断用，`translate.py` 会把末值报进 [INJECT] / [DONE]）
+OVERLAP_LIFT_SKIPPED: list[int] = [0]
+
+#: 抬升后至少要保留原版框高度的比例；低于此值判为「恶性抬升」并跳过。
+MIN_KEEP_RATIO = 0.5
+
+#: `Typesetting.render_page` 内唯一一处「把版框底边上抬」的语句（源码锚点）。
+_LIFT_ANCHOR = "if p_upper.box and new_y < p_upper.box.y2:"
+_LIFT_STMT = "p_upper.box.y = new_y"
+
+_typesetting_guard_installed = False
+
+
+def install_typesetting_overlap_guard(
+    keep_ratio: float = MIN_KEEP_RATIO, verbose: bool = False
+) -> bool:
+    """给 babeldoc 的 ``Typesetting.render_page`` 打「防重叠抬升」守卫。
+
+    治的是什么缺陷（babeldoc 0.6.4，bioengineering-12-00311 实测）
+    ------------------------------------------------------------------
+    ``render_page`` 在渲染前有一段防重叠逻辑：某段的版框若碰到「紧贴其下方
+    的段落」，就把该段**底边上抬**到 ``下方段落顶端 + required_gap``，以此让出
+    间距。紧接着 render 阶段会拿这个（已经变矮的）版框去
+    ``_find_optimal_scale_and_layout`` 搜字号 —— **框越矮，搜出的 scale 越小**。
+
+    问题在于那个「下方的段落」可能根本不是邻居：同一段文字在 IL 里会出现两份
+    对象（一份来自图 XObject ``xobj_id != 0``，一份来自页面正文 ``xobj_id == 0``），
+    两者版框几乎完全重合。此时循环把副本当成下方邻居，算出的 ``new_y`` 远高于
+    自身底边，一抬就把版框压成一条线。第 6 页实测一条：
+
+    ==============  =============================  ===================
+    阶段            版框                           随后得到的字号
+    ==============  =============================  ===================
+    preprocess      h=94.12 → optimal_scale=1.0     （完全放得下）
+    render 抬升后   h=4.63（底边上抬 91.7pt）       scale=0.1999… → 1.99pt
+    ==============  =============================  ===================
+
+    结果就是整段正文塌成 2pt「面条字」。**根子不在「字号调太小」，而在「版框被
+    自己人压扁了」**，所以守卫必须钉在抬升那一步，而不是等缩完再抢救。
+
+    守卫规则
+    ------------------------------------------------------------------
+    抬升后剩余高度 < ``keep_ratio`` × 原高度 → **不抬升**（不写 ``box.y``）。
+    物理含义：给下方邻居让位，最多只该压掉一半高度；要压掉一半以上，说明那个
+    「冲突段落」与自身大面积重叠、并非真正的下方邻居。此时保持原版框，让文字以
+    原字号正常渲染 —— 宁可稍微贴近，也不要塌成不可读的 2pt。
+    ``keep_ratio <= 0`` 等价于关闭守卫（退回官方行为）。
+
+    怎么打的（不改 site-packages）
+    ------------------------------------------------------------------
+    源码锚点替换：``inspect.getsource`` 取出 ``render_page`` → 找到锚点那一处
+    ``p_upper.box.y = new_y`` → 就地换成带守卫的三行 → ``exec`` 到一个以模块
+    全局**副本**为命名空间的字典里 → 取回新函数回填到类上。副本保证注入名
+    （``_KEEP_RATIO`` 等）和改名后的 ``render_page`` 都不会泄回 babeldoc 模块。
+
+    锚点找不到（babeldoc 升级改了实现）时**不补丁、只告警**并返回 ``False``，
+    保持官方行为，绝不半途抛异常。
+
+    实测效果（本论文）：第 6/7 页 <5pt 异常小字 710 字 → **0 字**；覆盖率
+    173/173、注入 190 段、中文 8115 字全部不变；文字行重叠对数（≥15% 阈值）
+    与打补丁前**逐对相同**，未新引入任何重叠。
+    """
+    global _typesetting_guard_installed
+    if _typesetting_guard_installed:
+        return True
+
+    import inspect
+    import textwrap
+
+    from babeldoc.format.pdf.document_il.midend import typesetting as _ts
+
+    try:
+        src = textwrap.dedent(inspect.getsource(_ts.Typesetting.render_page))
+    except (OSError, TypeError) as e:  # 源码不可得（如只装了 pyc）
+        _ts.logger.warning(f"[overlap-guard] 取不到 render_page 源码，跳过补丁：{e}")
+        return False
+
+    lines = src.splitlines()
+    tgt = None
+    for idx in range(len(lines) - 1):
+        if lines[idx].strip() == _LIFT_ANCHOR and lines[idx + 1].strip() == _LIFT_STMT:
+            tgt = idx + 1
+            break
+    if tgt is None:
+        _ts.logger.warning(
+            "[overlap-guard] 未找到抬升锚点（babeldoc 可能已升级）"
+            "→ 跳过补丁，保持官方行为"
+        )
+        return False
+
+    indent = lines[tgt][: len(lines[tgt]) - len(lines[tgt].lstrip())]
+    lines[tgt : tgt + 1] = [
+        f"{indent}if (p_upper.box.y2 - new_y) < _KEEP_RATIO * para_height:",
+        f"{indent}    _LIFT_SKIPPED[0] += 1",
+        f"{indent}else:",
+        f"{indent}    p_upper.box.y = new_y",
+    ]
+    # 补上 future import：原文件若依赖延迟求值注解，去掉后重新编译会 NameError
+    patched_src = "from __future__ import annotations\n" + "\n".join(lines) + "\n"
+
+    ns: dict = {"_KEEP_RATIO": float(keep_ratio), "_LIFT_SKIPPED": OVERLAP_LIFT_SKIPPED}
+    ns.update(vars(_ts))
+    try:
+        exec(compile(patched_src, "<babeldoc-overlap-guard>", "exec"), ns)  # noqa: S102
+        func = ns["render_page"]
+    except Exception as e:  # noqa: BLE001
+        _ts.logger.warning(
+            f"[overlap-guard] 补丁编译失败，跳过：{type(e).__name__}: {e}"
+        )
+        return False
+
+    _ts.Typesetting.render_page = func
+    _typesetting_guard_installed = True
+    if verbose:
+        print(f"    [overlap-guard] 已启用（keep_ratio={keep_ratio}）", flush=True)
+    return True
+
+
 # ---- 驱动 ----------------------------------------------------------------
 
 
@@ -375,7 +503,16 @@ def run_babeldoc_offline(
 
     # 图/表整体不翻译：在 babeldoc 选段阶段就把图表内部文字剔除。
     FIGURE_TABLE_SKIPPED.clear()
-    install_figure_table_guard(verbose=bool(os.environ.get("BABELDOC_TRANS_VERBOSE")))
+    _verbose = bool(os.environ.get("BABELDOC_TRANS_VERBOSE"))
+    install_figure_table_guard(verbose=_verbose)
+
+    # 防重叠抬升守卫：不许「为下方邻居让位」把版框压掉一半以上高度，
+    # 否则 render 阶段会在压扁的框里把字号搜到 1–4pt（正文塌成「面条字」）。
+    # 详见 install_typesetting_overlap_guard 的 docstring。
+    OVERLAP_LIFT_SKIPPED[0] = 0
+    install_typesetting_overlap_guard(
+        keep_ratio=MIN_KEEP_RATIO, verbose=_verbose
+    )
 
     trans = OfflineTranslator(mode=mode, translations=translations)
     trans.error = None
