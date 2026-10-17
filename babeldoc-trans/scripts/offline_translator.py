@@ -49,51 +49,42 @@ from babeldoc.translator.translator import set_translate_rate_limiter
 
 MARKER = "## Here is the input:"
 
-# babeldoc 富文本占位符：<bN>（开）/ </bN>（闭）。N 为 babeldoc 分配的样式 id。
-_LEFT_TAG = re.compile(r"<b(\d+)>")
-_RIGHT_TAG = re.compile(r"</b(\d+)>")
+# babeldoc 富文本 / 公式占位符：<bN>（开）/ </bN>（闭），N 为 babeldoc 分配的样式 id。
+#: 左右标签合并成一个形状，用于「按来源白名单」剔除占位符 token。
+_TAG = re.compile(r"</?b\d+>")
 
 
-def _clean_rich_text(text: str) -> str:
-    """保留参考文献编号占位符，剔除其余 <bN> 标签。
+def _clean_rich_text(text: str, source: str = "") -> str:
+    """只删除「源文本里本来就不存在」的占位符 token，其余原样保留。
 
-    判定规则（基于 nnWNet 等论文实测）：
+    为什么要改成按来源白名单（2026-10-17 修正，旧实现会误删内联公式）
+    ------------------------------------------------------------------
+    babeldoc 的两类占位符**字面形状完全相同**——``BaseTranslator.get_formular_placeholder``
+    直接 ``return self.get_rich_text_left_placeholder(id)``，公式占位就是单个
+    ``<bN>``；且 ``create_formula_placeholder`` 只产出一个左标签，所以公式占位
+    **天然是孤立、无闭合的**。
 
-    * 参考文献编号 = 连续、未闭合的 ``<b1><b2>…<bN>``（N 即条目号，
-      babeldoc 抽取时把数字本身丢了，只留下 <bN> 标记）。这类必须保留，
-      否则译文参考文献会整体丢失 [1][2]… 编号。
-    * 正文粗体 = ``<b1>…</b1>`` 成对的闭合标签，删除即可（粗体非必需）。
-    * 正文孤立未闭合标签（如 ``…benchmark <b1>.``）= babeldoc 抽取失败，
-      会渲染成字面量 ``<b1>``，必须删除。
+    旧实现按「是否为连续整数序列」去猜：连续未闭合的当参考文献编号保留，其余
+    当「babeldoc 抽取失败的垃圾」删掉。结果是把**正文里所有内联公式占位全部
+    误删**（本文实测：57 条含标签段落中 31 条被改动，``{16, 32, 48, 64, 96, 128}``、
+    ``1 × 1``、``224 × 224`` 等公式在成品中整体消失，且与译文质量无关）。
 
-    因此：仅当某个 <bN> 既「无对应 </bN>」又「与另外 ≥1 个无闭合标签构成
-    连续整数序列（如 1,2,3…）」时才保留；其余一律剔除。
+    旧注释「孤立未闭合标签会渲染成字面量 ``<b1>``」同样是错的：命中公式占位的
+    token 走 ``comp.pdf_formula = placeholder.formula``，会把原公式对象原位放回；
+    万一没命中，babeldoc 自己的 ``remove_placeholder`` 也会按允许集合把它删掉，
+    两种情况都不会漏出字面量。也就是说这一层删除**从来不是必需的**。
+
+    正确判据不是「猜形状」，而是「查来源」：译文里的 token 只要在源文本中出现过
+    就必须保留，只删除源文本中不存在的（模型幻觉或编号错写）。引擎侧的
+    ``allowed_placeholder_tokens`` 用的是同一套判据，此处属于前置兜底。
+
+    :param text: 待注入的译文
+    :param source: 对应的源文本（含 babeldoc 生成的原始占位符）
     """
-    lefts = [(m.start(), int(m.group(1))) for m in _LEFT_TAG.finditer(text)]
-    if not lefts:
+    if not text or not _TAG.search(text):
         return text
-    right_ids = {int(m.group(1)) for m in _RIGHT_TAG.finditer(text)}
-    unmatched = [n for (_, n) in lefts if n not in right_ids]
-    keep: set[int] = set()
-    if len(unmatched) >= 2:
-        nums = sorted(unmatched)
-        best = run = [nums[0]]
-        for x in nums[1:]:
-            if x == run[-1] + 1:
-                run.append(x)
-            else:
-                if len(run) > len(best):
-                    best = run
-                run = [x]
-        if len(run) > len(best):
-            best = run
-        if len(best) >= 2:
-            keep = set(best)
-
-    def _repl(m):
-        return m.group(0) if int(m.group(1)) in keep else ""
-
-    return _LEFT_TAG.sub(_repl, _RIGHT_TAG.sub(_repl, text))
+    allowed = set(_TAG.findall(source or ""))
+    return _TAG.sub(lambda m: m.group(0) if m.group(0) in allowed else "", text)
 
 
 __all__ = [
@@ -190,15 +181,12 @@ class OfflineTranslator(BaseTranslator):
                     else:
                         self.hit += 1
                 out_text = tgt if tgt is not None else inp
-                # babeldoc 内部富文本占位符处理（关键，不能一刀切）：
-                #   * 参考文献编号以「连续、未配对的 <b1><b2>…<bN>」形式编码，
-                #     必须保留 —— 删掉它们会导致译文参考文献丢失 [1][2]… 编号。
-                #   * 正文里的粗体样式是「成对的 <b1>…</b1>」，用户未要求保留，
-                #     且成对的标签本就会渲染成正常粗体（不会成字面量）。
-                #   * 正文里偶发的「孤立未闭合 <b1>」（如 "...benchmark <b1>."）
-                #     是 babeldoc 抽取失败的产物，会渲染成字面量 <b1>，必须删。
-                # 策略：只保留「连续且未闭合」的 <bN> 序列（参考文献编号），其余全删。
-                out_text = _clean_rich_text(out_text)
+                # babeldoc 内部富文本/公式占位符处理（关键，不能一刀切）：
+                #   占位符形状统一为 <bN>（公式占位与富文本左标签同形，
+                #   babeldoc 不区分），因此**不做形状猜测**，只按来源白名单剔除：
+                #   源文本里出现过的 token 一律保留（公式才能在回填时原位还原），
+                #   源文本里没有的（模型幻觉/编号错写）才删除。
+                out_text = _clean_rich_text(out_text, inp)
                 out.append({"id": it.get("id"), "output": out_text})
         return json.dumps(out, ensure_ascii=False)
 
