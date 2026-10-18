@@ -64,8 +64,9 @@ python scripts/translate.py <输入> --output-dir DIR
 
 覆盖率 ≥ 95% 才会渲染；不足会中止并列出缺失项（避免产出半英半中的 PDF）。确实想强渲染时加 `--allow-partial`，缺失条目保留英文原文。
 
-默认还会对参考文献区做悬挂缩进重排（`--reflow` 默认开），重排成品即主交付 `{中文标题}.pdf`。
-重排前会自动识别参考文献 section 的边界：扫描后续页面，遇到 Supplementary Material / Appendix / Acknowledgements / 补充材料 / 附录 / 致谢 等大章节标题时停止，并把该页及其之后**原样保留**，避免把补充材料误当成参考文献 wiping 掉、导致后续排版混乱。
+默认还会对参考文献区做悬挂缩进重排（`--reflow` 默认开），重排后的成品即主交付 `{中文标题}.pdf`。
+栏数按整篇版式判定（逐页探测版心中缝、多数投票），单栏 / 双栏论文都按各自版式重排；判据取自全文而非参考文献区本身——该区 x0 分布最乱，单栏也会被聚出「假第二峰」误拆双栏。
+重排前自动识别参考文献 section 的边界：扫描后续页面，遇到 Supplementary Material / Appendix / Acknowledgements / 补充材料 / 附录 / 致谢 等大章节标题时停止；若参考文献之后**无标题、直接排附录表格**（arXiv 常见），则改由结构特征判定——页面不再出现行首条目编号、或出现 `Table/Figure N` 标题即认定附录开始。两种情况都把该页及其之后**原样保留**，避免被误当文献 wiping 掉。擦除前另有校验：抽取结果不像文献表（≥3 条且 ≥50% 含四位年份）则放弃重排、原文不动，杜绝静默丢内容。判定依据打在日志 `[边界]` 行。
 
 结束时打印 `[DONE] {...}`，含 `output_pdf` / `coverage` / `inject_hit` / `inject_miss` / `zh_chars` / `latin_words`。
 注意：**`work` 工作目录不会自动删除**——沙箱对单次删除文件数有限额、且删除操作须由用户亲自执行。任务完成后请主动告知用户输出目录下除最终 PDF 外还有一个 `work/` 中间产物文件夹（可手动删除），并给出其绝对路径；不要自行执行任何删除。
@@ -84,7 +85,7 @@ python scripts/translate.py <输入> --output-dir DIR
 | `--status` | 查看译文覆盖率并刷新 `pending.jsonl` | 关闭 |
 | `--allow-partial` | 覆盖率不足时仍强制渲染 | 关闭 |
 | `--translate-refs` | 参考文献条目也交给 Agent 翻译 | 关闭（默认保留英文） |
-| `--reflow` / `--no-reflow` | 渲染后自动对参考文献区做悬挂缩进重排，重排后的成品即主交付 `{中文标题}.pdf`（默认开；`--no-reflow` 关闭） | 开启 |
+| `--reflow` / `--no-reflow` | 渲染后自动对参考文献区做悬挂缩进重排，重排后的成品即主交付 `{中文标题}.pdf`（默认开；`--no-reflow` 关闭）。栏数按整篇版式自动判定，单栏/双栏均适用 | 开启 |
 
 已废弃（传了只会打一条 WARN 然后忽略）：`--api-key` `--api-base` `--model` `--qps`。
 **环境变量 `BABELDOC_API_KEY` / `BABELDOC_API_BASE` / `BABELDOC_MODEL` 全部不再使用。**
