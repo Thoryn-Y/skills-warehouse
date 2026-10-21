@@ -105,4 +105,4 @@ cp -r deeplearning-digest/ ~/.claude/skills/deeplearning-digest/
 
 本仓库默认采用 [MIT 许可证](./LICENSE) 授权。
 
-`babeldoc-trans/` 目录包含修改和整合后的第三方代码与提示词文本。完整的归属声明和原始版权信息见 [`babeldoc-trans/LICENSE`](./babeldoc-trans/LICENSE)。
+`babeldoc-trans/` 目录包含经修改和整合的衍生代码以及提示词文本（均源自其他 MIT 许可项目）。完整的归属声明和原始版权信息见 [`babeldoc-trans/LICENSE`](./babeldoc-trans/LICENSE)。
