@@ -14,7 +14,7 @@ Feel free to browse, but no promises it'll fit your workflow.
 
 | 技能 | 场景 | 核心特点 |
 |------|------|----------|
-| [`AutoDL_Cloud_Server_Training_Guide`](./AutoDL_Cloud_Server_Training_Guide/) | 在 AutoDL 云服务器上租用 GPU 并运行深度学习训练的通用流程 | 全流程链条完整清晰，傻瓜式教学，但与 AutoDL 绑定，不通用 |
+| [`autodl-gpu-training`](./autodl-gpu-training/) | 在 AutoDL 云服务器上租用 GPU 并运行深度学习训练的通用流程 | 全流程链条完整清晰，傻瓜式教学，但与 AutoDL 绑定，不通用 |
 | [`babeldoc-trans`](./babeldoc-trans/) | PDF 论文自动翻译 | 基于 BabelDOC 引擎，零外部 API，保留原始排版，包含翻译质量方法论 |
 | [`deeplearning-digest`](./deeplearning-digest/) | 深度学习相关论文解读 | 纯提示词、零依赖，面向深度学习初学者的低门槛讲解生成 |
 | [`paper-translation`](./paper-translation/) | 学术论文中译 | 以"中文写作水准"为核心导向，强调"先吃透意思，再用中文说话" |
@@ -32,7 +32,7 @@ Feel free to browse, but no promises it'll fit your workflow.
 - **计数口径防自欺**：epoch 按编号去重（续训会重跑一轮，按行数多计）、测试按 case 计数（一个 case 常有多份产物文件）
 - **附 4 个脚本模板**：run_all / setup_env / monitor / pretest，按实际任务编写实际所用脚本内容
 
-📖 详见 [`AutoDL_Cloud_Server_Training_Guide/SKILL.md`](./AutoDL_Cloud_Server_Training_Guide/SKILL.md)
+📖 详见 [`autodl-gpu-training/SKILL.md`](./autodl-gpu-training/SKILL.md)
 
 ---
 
