@@ -10,14 +10,33 @@ Feel free to browse, but no promises it'll fit your workflow.
 
 ## 📦 仓库内容 / What's Inside
 
-本仓库收录了面向 AI Agent（如 Claude、Kimi、WorkBuddy 等）的**可复用技能（Skills）**，涵盖学术翻译、论文解读等场景。每个技能均为独立文件夹，包含完整的提示词、执行脚本与参考文档。
+本仓库收录了面向 AI Agent（如 Claude、Kimi、WorkBuddy 等）的**可复用技能（Skills）**，涵盖学术翻译、论文解读、代码溯源等场景。每个技能均为独立文件夹，包含完整的提示词、执行脚本与参考文档。
 
 | 技能 | 场景 | 核心特点 |
 |------|------|----------|
+| [`ai-code-detect`](./ai-code-detect/) | 判断一段代码是否由 AI 生成、AI 参与面有多大 | 双轴判定（文体层 + 纪律层），纪律层须用人工基线校准；仅支持 Python，可判到项目级/文件级，做不到行级 |
 | [`autodl-gpu-training`](./autodl-gpu-training/) | 在 AutoDL 云服务器上租用 GPU 并运行深度学习训练的通用流程 | 全流程链条完整清晰，傻瓜式教学，但与 AutoDL 绑定，不通用 |
 | [`babeldoc-trans`](./babeldoc-trans/) | PDF 论文自动翻译 | 基于 BabelDOC 引擎，零外部 API，保留原始排版，包含翻译质量方法论 |
 | [`deeplearning-digest`](./deeplearning-digest/) | 深度学习相关论文解读 | 纯提示词、零依赖，面向深度学习初学者的低门槛讲解生成 |
 | [`paper-translation`](./paper-translation/) | 学术论文中译 | 以"中文写作水准"为核心导向，强调"先吃透意思，再用中文说话" |
+
+---
+
+### 🔍 ai-code-detect — AI 生成代码检测
+
+**定位**：不是「AI 概率打分器」，而是一套带校准纪律的痕迹取证流程——每个结论都要说清依据来自哪一层、倍数是多少。
+**目标**：回答「这份代码 AI 参与过没有、参与面多大」，并在证据不足时明确说「判不了」，而不是硬凑一个分数。
+
+- **双轴判定**：轴 A 文体层（注释、命名、防御、排版，0–100 分）认「AI 速成」；轴 B 纪律层（文档风格 + 注释组织）认「多轮迭代生成」。两轴分开读，不互相抵消
+- **为什么必须有轴 B**：多轮 AI 生成会把文体压平——注释被要求少写、风格向既有代码靠拢，轴 A 会集体归零。但迭代压不平纪律：人必然漂移（调试时注释掉几行忘了删），AI 每轮重读同一份约定然后原样重放
+- **判据必须独立**：早期版本把「文档覆盖高」与「私有/公共无落差」拆成两条，结果把一个 116 个文件的成熟开源项目打成「高度疑似」。现改为 **D ∧ S 合取**（文档风格偏离 **且** 注释组织偏离），单条再高也不成立
+- **绝对值没有意义，只看倍数**：CPython 标准库自身就有 0.3% 的文件命中，必须先跑人工基线再解释目标数字
+- **已知误判源已封堵**：docstring 里的 `>>> # Your code here` 用法示例会被当成生成器残留，已列入 S1 排除条款
+- **附 `scripts/trace_probe.py`**：`ast` + `tokenize` 静态解析，不 import、不执行被测代码、不联网、不装包
+
+⚠️ **边界**：仅支持 **Python**（JS/TS、Java、Go 等项目轴 B 整体不适用）；做不到行级归属，只能到项目级/文件级；无人工基线时纪律层只能当中信号。
+
+📖 详见 [`ai-code-detect/SKILL.md`](./ai-code-detect/SKILL.md)
 
 ---
 
@@ -85,6 +104,11 @@ Feel free to browse, but no promises it'll fit your workflow.
 skills-warehouse/
 ├── README.md                 # 本文件
 ├── LICENSE                   # MIT 许可证
+├── ai-code-detect/           # AI 生成代码检测 Skill
+│   ├── SKILL.md              # 双轴判定、三层痕迹模型与判定区间
+│   ├── references/           # 痕迹目录、执行手册、方法论、效力边界、去 AI 味改写手册
+│   └── scripts/
+│       └── trace_probe.py    # 纪律层静态探针（ast + tokenize，支持 --baseline 校准）
 ├── autodl-gpu-training/      # 云端 GPU 训练全流程 Skill
 │   ├── SKILL.md              # 十三章主流程
 │   └── scripts/              # 4 个脚本通用模板
